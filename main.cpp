@@ -6,7 +6,7 @@
 #include "evaluation.h"
 #include <cassert>
 
-#define NAME "byteKnight"
+#define NAME "C-Mate"
 #define AUTHOR "bmarius05"
 
 #define DEFAULT_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
