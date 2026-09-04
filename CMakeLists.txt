@@ -11,4 +11,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 file(GLOB SOURCES "*.cpp")
-add_executable(chess_engine ${SOURCES})
+add_executable(C-Mate ${SOURCES})
