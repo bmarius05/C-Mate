@@ -11,6 +11,8 @@
 
 #define DEFAULT_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
 
+//test
+
 char fenNotation[73];
 Color sideToMove = WHITE;
 
