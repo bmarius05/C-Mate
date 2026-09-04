@@ -41,4 +41,4 @@ A common pitfall in engine development is the "Ghost Piece" phenomenon, where th
 
 | Version | Date | Notes |
 |---|---|---|
-| [v0.0.1](https://github.com/bmarius05/C-Mate/releases/tag/PreRelease) | 2026-09-04 | Working bese version |
+| [v0.0.1](https://github.com/bmarius05/C-Mate/releases/tag/PreRelease) | 2026-09-04 | Working base version |
