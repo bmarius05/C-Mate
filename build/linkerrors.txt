@@ -1,8 +1,0 @@
-================================================================================
-Linker Errors
-Generated: 2026-09-03T20:48:53.920Z
-Total Errors: 1
-================================================================================
-
-[LNK1168] (MSVC)
-cannot open C:\VSCode\cpp\chessEngine\build\Debug\chess_engine.exe for writing [C:\VSCode\cpp\chessEngine\build\chess_engine.vcxproj]

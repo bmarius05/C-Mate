@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/VSCode/cpp/chessEngine/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
