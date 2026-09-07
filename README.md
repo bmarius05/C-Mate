@@ -4,9 +4,9 @@
 ![Protocol](https://img.shields.io/badge/Protocol-UCI-success.svg)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)
 
-**C-Mate** is a custom-built, high-performance chess engine written entirely from scratch in C++. Developed by bmarius05, this engine relies on a 64-bit Bitboard architecture to navigate complex game trees and deliver strong moves in real-time. 
+**C-Mate** is a custom-built, high-performance chess engine written entirely from scratch in C++. This engine relies on a 64-bit Bitboard architecture to navigate complex game trees and deliver strong moves in real-time. 
 
-It is fully compliant with the **Universal Chess Interface (UCI)** protocol, meaning it seamlessly plugs into standard graphical interfaces like Arena Chess GUI, CuteChess, or En Croissant.
+It is compliant with the **Universal Chess Interface (UCI)** protocol, meaning it seamlessly plugs into standard graphical interfaces like Arena Chess GUI, CuteChess, or En Croissant.
 
 ## ✨ Core Features
 
@@ -22,7 +22,7 @@ It is fully compliant with the **Universal Chess Interface (UCI)** protocol, mea
 Building **C-Mate** involved solving complex low-level memory and algorithmic challenges:
 
 ### 1. Mathematical Ray-Casting for Sliding Pieces
-Instead of relying on slow iterative loops, sliding piece attacks (Bishops, Rooks, Queens) are generated using bitwise operations. By extracting the Least Significant Bit (LSB) or Most Significant Bit (MSB) based on the ray's trajectory relative to the origin square, the engine calculates blockages and captures in O(1) operations per direction.
+Instead of relying on slow iterative loops, sliding piece attacks (Bishops, Rooks, Queens) are generated using bitwise operations. By extracting the Least Significant Bit or Most Significant Bit based on the ray's trajectory relative to the origin square, the engine calculates blockages and captures in O(1) operations per direction.
 
 ### 2. State Reversibility (`makeMove` / `unmakeMove`)
 To avoid the immense memory overhead of deep-copying the board state during the Minimax search, the engine uses a custom `MoveInfo` tracking structure. This struct snapshots historical data (castling rights, en passant squares, captured pieces) right before a move is made. When `unmakeMove` is called, the engine steps backward in time, resolving state mutations instantly in O(1) time.
