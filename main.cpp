@@ -16,6 +16,12 @@
 char fenNotation[73];
 Color sideToMove = WHITE;
 
+uint64_t gameHistory[1024];
+
+long long totalExplored = 0;
+
+uint8_t moveCnt;
+
 #define PLAYER_SIDE WHITE
 
 void init(){
@@ -24,6 +30,7 @@ void init(){
     initKingAttacks();
     initBishopAttacks();
     initRookAttacks();
+    initZobrist();
 }
 
 Move getPlayerMove(){
@@ -77,7 +84,6 @@ void UCILoop(){
                 if(command == "moves"){
                     while(iss>>command){
                         makeMove(stringToMove(command));
-                        sideToMove = oppositeColor(sideToMove);
                     }
                 }
             }else if(command == "fen"){
@@ -89,6 +95,7 @@ void UCILoop(){
 
                         std::cout<<"To move black\n";
                         sideToMove = BLACK;
+                        boardHash^=sideKey;
                     }
                     else if(command == "w"){
                         std::cout<<"To move white\n";
@@ -97,7 +104,6 @@ void UCILoop(){
                     if(command == "moves"){
                         while(iss>>command){
                             makeMove(stringToMove(command));
-                            sideToMove = oppositeColor(sideToMove);
                         }
                     }
                 }

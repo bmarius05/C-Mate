@@ -41,9 +41,7 @@ enum rookDirections:int{
     LEFT=3
 };
 
-uint8_t castlingRights = 0x0f;
-Square enPassantSq = A1;
-bool enPassant = false;
+
 
 void resetFlags(){
     castlingRights=15;
@@ -66,12 +64,15 @@ void validateBoardState() {
 }
 
 MoveInfo makeMove(Move move){
+    totalExplored++;
+
     Square src = move.src;
     PieceType piece = board.cells[src];
-
     uint8_t castlingRightsCopy = castlingRights;
     Square enPassantSqCopy = enPassantSq;
     bool enPassantCopy = enPassant;
+
+    gameHistory[moveCnt] = boardHash;
 
     if(piece==EMPTY){
         printf("Was tried from:%d\n to: %d\n", move.src, move.dst);
@@ -88,11 +89,19 @@ MoveInfo makeMove(Move move){
             rookMask = (1ULL<<H1)|(1ULL<<F1);
             board.cells[H1]=EMPTY;
             board.cells[F1]=WHITE_ROOK;
+            
+            boardHash ^= pieceKeys[WHITE_ROOK][F1];
+            boardHash ^= pieceKeys[WHITE_ROOK][H1];
+
             castlingRights ^=1;
         }else if (dst-src==-2 && castlingRights&2){
             //queen side castle
             board.cells[A1]=EMPTY;
             board.cells[D1]=WHITE_ROOK;
+
+            boardHash ^= pieceKeys[WHITE_ROOK][A1];
+            boardHash ^= pieceKeys[WHITE_ROOK][D1];
+
             rookMask = (1ULL<<A1)|(1ULL<<D1);
             castlingRights^=2;
         }
@@ -106,12 +115,20 @@ MoveInfo makeMove(Move move){
             rookMask = (1ULL<<H8)|(1ULL<<F8);
             board.cells[H8]=EMPTY;
             board.cells[F8]=BLACK_ROOK;
+            
+            boardHash ^= pieceKeys[BLACK_ROOK][H8];
+            boardHash ^= pieceKeys[BLACK_ROOK][F8];
+            
             castlingRights ^=4;
         }else if (dst-src==-2 && castlingRights&8){
             //queen side castle
             rookMask = (1ULL<<A8)|(1ULL<<D8);
             board.cells[A8]=EMPTY;
             board.cells[D8]=BLACK_ROOK;
+            
+            boardHash ^= pieceKeys[BLACK_ROOK][A8];
+            boardHash ^= pieceKeys[BLACK_ROOK][D8];
+            
             castlingRights^=8;
         }
         board.pieces[BLACK_ROOK]^=rookMask;
@@ -149,6 +166,9 @@ MoveInfo makeMove(Move move){
             uint64_t enPassantMask = (1ULL)<<enemySq;
             board.cells[enemySq]=EMPTY;
             board.pieces[BLACK_PAWN]^=enPassantMask;
+            
+            boardHash ^= pieceKeys[BLACK_PAWN][enemySq]; 
+
             board.pieces[BLACK_PIECE]^=enPassantMask;
             board.pieces[EMPTY]^=enPassantMask;
         }
@@ -161,6 +181,9 @@ MoveInfo makeMove(Move move){
             uint64_t enPassantMask = (1ULL)<<enemySq;
             board.cells[enemySq]=EMPTY;
             board.pieces[WHITE_PAWN]^=enPassantMask;
+
+            boardHash ^= pieceKeys[WHITE_PAWN][enemySq];
+
             board.pieces[WHITE_PIECE]^=enPassantMask;
             board.pieces[EMPTY]^=enPassantMask;
         }
@@ -171,11 +194,14 @@ MoveInfo makeMove(Move move){
     board.cells[src]=EMPTY;
     board.cells[dst]=piece;
 
+    
     uint64_t moveMask = (1ULL<<src) | (1ULL<<dst);
     
     board.pieces[piece] ^= moveMask; 
     board.pieces[colorIndex] ^= moveMask;
     
+    boardHash ^= pieceKeys[piece][src]; // Scoți piesa de pe src
+    boardHash ^= pieceKeys[piece][dst]; // Pui piesa pe dst
 
 
     if(capturedPiece!=EMPTY){
@@ -184,6 +210,8 @@ MoveInfo makeMove(Move move){
 
         board.pieces[capturedPiece] ^= captureMask;
         board.pieces[enemyColorIndex] ^= captureMask;
+
+        boardHash ^= pieceKeys[capturedPiece][dst]; // Scoți piesa de pe src
 
         board.pieces[EMPTY] ^= (1ULL<<src);
     }
@@ -194,20 +222,93 @@ MoveInfo makeMove(Move move){
     if(piece==WHITE_PAWN && dst>=56){
         board.pieces[WHITE_PAWN] ^= 1ULL<<dst;
         board.pieces[WHITE_QUEEN] ^= 1ULL<<dst;
+
+        boardHash ^= pieceKeys[WHITE_PAWN][dst]; 
+        boardHash ^= pieceKeys[WHITE_QUEEN][dst];
+
         board.cells[dst]=WHITE_QUEEN;
     }else if(piece==BLACK_PAWN && dst<8){
         board.pieces[BLACK_PAWN] ^= 1ULL<<dst;
         board.pieces[BLACK_QUEEN] ^= 1ULL<<dst;
+
+        boardHash ^= pieceKeys[BLACK_PAWN][dst];
+        boardHash ^= pieceKeys[BLACK_QUEEN][dst];
+
         board.cells[dst]=BLACK_QUEEN;
     }
 
+    boardHash ^= castleKeys[castlingRights];
+    boardHash ^= castleKeys[castlingRightsCopy];
+    if (enPassantCopy) {
+        boardHash ^= enPassantKeys[enPassantSqCopy % 8];
+    }
+    if (enPassant) {
+        boardHash ^= enPassantKeys[enPassantSq % 8];
+    }
+    boardHash ^= sideKey;
+    sideToMove = oppositeColor(sideToMove);
     validateBoardState();
+
+    moveCnt++;
+
+    uint64_t freshHash = generateZorbist();
+    if (boardHash != freshHash) {
+        uint64_t diff = boardHash ^ freshHash;
+        bool found = false;
+        
+        printf("\n--- DESINCRONIZARE ZOBRIST (Mutarea %d) ---\n", moveCnt);
+        
+        if (diff == sideKey) {
+            printf("VINOVATUL: sideKey (Randul la mutare desincronizat!)\n");
+            found = true;
+        }
+
+        if (!found) {
+            for (int i = 0; i < 8; i++) {
+                if (diff == enPassantKeys[i]) {
+                    printf("VINOVATUL: En Passant pe coloana %d\n", i);
+                    found = true;
+                }
+            }
+        }
+        
+        if (!found) {
+            for (int p = 0; p < 16; p++) {
+                for (int sq = 0; sq < 64; sq++) {
+                    if (diff == pieceKeys[p][sq]) {
+                        printf("VINOVATUL: Piesa de tip %d pe patratul %d!\n", p, sq);
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        if (!found) {
+            for (int p = 0; p < 16; p++) {
+                for (int s1 = 0; s1 < 64; s1++) {
+                    for (int s2 = s1 + 1; s2 < 64; s2++) { 
+                        if (diff == (pieceKeys[p][s1] ^ pieceKeys[p][s2])) {
+                            printf("VINOVATUL: Mutarea piesei %d intre %d si %d!\n", p, s1, s2);
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!found) {
+             printf("VINOVATUL COMPLEX (Rocada / Mutari multiple). Diff: %llu\n", diff);
+        }
+    }
+
+    assert(boardHash == generateZorbist());
 
     return MoveInfo{src,dst,piece,capturedPiece,castlingRightsCopy,enPassantSqCopy,enPassantCopy};
 }
 
 void unmakeMove(const MoveInfo move)
 {
+    
     Square src = move.src;
     Square dst = move.dst;
     PieceType piece = move.movedPiece;
@@ -297,7 +398,10 @@ void unmakeMove(const MoveInfo move)
     castlingRights = move.castlingRightsCopy;
     enPassant = move.enPassantCopy;
     enPassantSq = move.enPassantSqCopy;
+    sideToMove = oppositeColor(sideToMove);
     validateBoardState();
+    boardHash = gameHistory[--moveCnt];
+
 }
 
 uint64_t FILE_A = 0x0101010101010101ULL;
@@ -430,11 +534,6 @@ void generateKnightMoves(Square sq, uint64_t myPieces, Move* moveList, int& move
 
 void generateKingMoves(Square sq, uint64_t myPieces, Move* moveList, int& moveCount){
     uint64_t validDst = kingAttacks[sq] & ~myPieces;
-    while (validDst) {
-        uint8_t dstIndex = getLSBIndex(validDst); 
-        moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-        validDst &= validDst - 1; 
-    }
     if(sq==E1 && board.cells[E1]==WHITE_KING){
         if(castlingRights & 1 && !isSquareAttacked(E1,BLACK)&&!isSquareAttacked(F1,BLACK)&&!isSquareAttacked(G1,BLACK)){
             if(board.cells[F1]==EMPTY && board.cells[G1]==EMPTY)
@@ -453,6 +552,11 @@ void generateKingMoves(Square sq, uint64_t myPieces, Move* moveList, int& moveCo
             if(board.cells[D8]==EMPTY && board.cells[C8]==EMPTY && board.cells[B8]==EMPTY)
                 moveList[moveCount++] = Move{sq, C8};
         }
+    }
+    while (validDst) {
+        uint8_t dstIndex = getLSBIndex(validDst); 
+        moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
+        validDst &= validDst - 1; 
     }
 }
 
@@ -719,10 +823,14 @@ int generateAllMoves(Color sideToMove, Move *moveList){
 Move findBestMove(Color sideToMove){
     Move moveList[256];
     MoveInfo moveInfo;
+    if(moveCnt==0){
+        return Move{D2,D4};
+    }
     int moveCount = generateAllMoves(sideToMove, moveList);
     int bestIndex=-1;
     int currEval;
     int legalMoves=0;
+    totalExplored=0;
     if(sideToMove==WHITE){
         int maxEval=-10000000;
         for(int i=0;i<moveCount;i++){
@@ -734,7 +842,7 @@ Move findBestMove(Color sideToMove){
                 continue;
             }
             legalMoves++;
-            currEval = minMax(maxDepth, BLACK);
+            currEval = minMax(maxDepth, BLACK, INT_MIN, INT_MAX);
             //printf("Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
             if(currEval > maxEval || bestIndex == -1){
                 maxEval=currEval;
@@ -742,6 +850,7 @@ Move findBestMove(Color sideToMove){
             }
             unmakeMove(moveInfo);
         }
+        currEval = maxEval;
     }else{
         int minEval=10000000;
         for(int i=0;i<moveCount;i++){
@@ -749,29 +858,26 @@ Move findBestMove(Color sideToMove){
             Square blackKingSq = getKingSquare(BLACK);
             bool isAttacked = isSquareAttacked(blackKingSq, WHITE);
             
-            // Printăm adevărul gol-goluț!
-            std::cout << "info string DEBUG: Regele Negru este pe patratul " << static_cast<int>(blackKingSq) << "\n";
-            std::cout << "DEBUG: isSquareAttacked zice ca e atacat? " 
-                    << (isAttacked ? "DA" : "NU") << "\n";
-            std::cout<<"info string DEBUG: index is: "<<i<<std::endl;
-            std::cout<<std::flush;
-
+            
             if (isSquareAttacked(getKingSquare(BLACK), WHITE)) {
                 unmakeMove(moveInfo);
                 continue;
             }
             legalMoves++;
-            currEval = minMax(maxDepth, WHITE);
+            currEval = minMax(maxDepth, WHITE, INT_MIN, INT_MAX);
+            
             //printf("info string DEBUG: Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
             if(currEval < minEval || bestIndex == -1){
-                printf("DEBUG: Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
                 minEval=currEval;
                 bestIndex=i;
             }
             unmakeMove(moveInfo);
         }
+        currEval = minEval;
     }
+    printf("info string DEBUG: Total Explored: %lld\n", totalExplored);
     printf("info string DEBUG: legalmoves: %d -\n",legalMoves);
+    printf("info string DEBUG: Best Eval: %d -\n",currEval);
     if (legalMoves == 0) {
         //semnal de Game Over
         return Move{A1, A1}; 

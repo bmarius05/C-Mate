@@ -17,6 +17,15 @@ struct Move{
     Square dst;
 };
 
+extern uint8_t moveCnt;
+extern uint64_t gameHistory[1024];
+
+extern uint8_t castlingRights;
+extern Square enPassantSq;
+extern bool enPassant;
+
+extern long long totalExplored;
+
 void resetFlags();
 
 MoveInfo makeMove(Move move);

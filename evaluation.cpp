@@ -42,6 +42,27 @@ inline uint8_t getMSBIndex(uint64_t bb) {
 #endif
 }
 
+bool checkThreefold(){
+    uint8_t found=1;
+    uint64_t lastHash = gameHistory[moveCnt-1];
+    for(int i=0;i<moveCnt-2;i++)
+        if(gameHistory[i]==lastHash)
+            found++;
+
+    if(found==3)
+        return true; //threefold
+    return false;
+}
+
+int isTerminalState(){
+    ///return -1(BLACK), 0(DRAW), 1(WHITE)   -2(NONTERMINAL)
+    if(checkThreefold())
+        return 0; 
+    
+    return -2;   
+    /// TODO: logic
+}
+
 int getKnightsEval(Color side){
     int eval=0;
     uint64_t knightsCopy = board.pieces[WHITE_KNIGHT|side<<3];
@@ -57,21 +78,75 @@ int getKnightsEval(Color side){
     return eval;
 }
 
+int getPawnsEval(Color side){
+    int eval = 0;
+    int bonus = 0;
+    uint64_t pawnsCopy = board.pieces[WHITE_PAWN|side<<3];
+    while (pawnsCopy) {
+        Square src = static_cast<Square>(getLSBIndex(pawnsCopy));
+        eval+=100;
+        bonus = (src/16)*10;
+        if(side == WHITE)
+            eval+=bonus;
+        else
+            eval+= (30-bonus);
+        if(src == D4 || src == E4 || src == D5 || src == E5)
+            eval+=10;
+        pawnsCopy &= pawnsCopy - 1; 
+    }
+    return eval;
+}
+
+const int mopUpTable[64] = {
+    100, 90, 80, 70, 70, 80, 90, 100,
+     90, 70, 60, 50, 50, 60, 70,  90,
+     80, 60, 40, 30, 30, 40, 60,  80,
+     70, 50, 30, 20, 20, 30, 50,  70,
+     70, 50, 30, 20, 20, 30, 50,  70,
+     80, 60, 40, 30, 30, 40, 60,  80,
+     90, 70, 60, 50, 50, 60, 70,  90,
+    100, 90, 80, 70, 70, 80, 90, 100
+};
+
+int evalMopUp(Color side){
+    Square myKing = getKingSquare(side);
+    Square enemyKing = getKingSquare(oppositeColor(side));
+
+    int eval = 0;
+    eval += mopUpTable[enemyKing];
+
+    int myRank = myKing / 8;
+    int myFile = myKing % 8;
+    int enemyRank = enemyKing / 8;
+    int enemyFile = enemyKing % 8;
+
+    int distance = abs(myRank - enemyRank) + abs(myFile - enemyFile);
+
+    eval += (14-distance)*10;
+
+    return eval;
+}
+
 int staticEval(){
-    int eval=0;
-    eval+=countBits(board.pieces[WHITE_PAWN])*100;
-    eval+=countBits(board.pieces[WHITE_BISHOP])*300;
-    eval+=getKnightsEval(WHITE);
-    eval+=countBits(board.pieces[WHITE_ROOK])*500;
-    eval+=countBits(board.pieces[WHITE_QUEEN])*900;
-    eval+=countBits(board.pieces[WHITE_KING])*10000000;
+    const int ENDGAME_LIMIT = 400;
     
-    eval-=countBits(board.pieces[BLACK_PAWN])*100;
-    eval-=countBits(board.pieces[BLACK_BISHOP])*300;
-    eval-=getKnightsEval(BLACK);
-    eval-=countBits(board.pieces[BLACK_ROOK])*500;
-    eval-=countBits(board.pieces[BLACK_QUEEN])*900;
-    eval-=countBits(board.pieces[BLACK_KING])*10000000;
+    int whiteMaterial = 0;
+    int blackMaterial = 0;
+
+    whiteMaterial+=getPawnsEval(WHITE);
+    whiteMaterial+=countBits(board.pieces[WHITE_BISHOP])*300;
+    whiteMaterial+=getKnightsEval(WHITE);
+    whiteMaterial+=countBits(board.pieces[WHITE_ROOK])*500;
+    whiteMaterial+=countBits(board.pieces[WHITE_QUEEN])*900;
+    
+    
+    blackMaterial+=getPawnsEval(BLACK);
+    blackMaterial+=countBits(board.pieces[BLACK_BISHOP])*300;
+    blackMaterial+=getKnightsEval(BLACK);
+    blackMaterial+=countBits(board.pieces[BLACK_ROOK])*500;
+    blackMaterial+=countBits(board.pieces[BLACK_QUEEN])*900;
+    
+    int eval=whiteMaterial-blackMaterial;
 
     if (isSquareAttacked(getKingSquare(WHITE), BLACK)) {
         eval -= 50;
@@ -81,11 +156,23 @@ int staticEval(){
         eval += 50;
     }
 
+    if(eval > 300 && blackMaterial < ENDGAME_LIMIT){
+        eval+= evalMopUp(WHITE);
+    }else if(eval < -300 && whiteMaterial < ENDGAME_LIMIT){
+        eval-= evalMopUp(BLACK);
+    }
+
+
+
     return eval;
 }
 
-int minMax(int depth, Color sideToMove)
+int minMax(int depth, Color sideToMove, int alpha, int beta)
 {
+    short int terminal = isTerminalState(); 
+    if(terminal!=-2){
+        return terminal*100000000;
+    }
     if(depth==0){
         return staticEval();
     }
@@ -95,7 +182,7 @@ int minMax(int depth, Color sideToMove)
     int moveCount = generateAllMoves(sideToMove,moveList);
     int legalMoves=0;
     if(sideToMove==WHITE){
-        bestEval=INT_MIN;
+        bestEval=-100000000;
         for(int i=0;i<moveCount;i++){
             MoveInfo moveInfo = makeMove(moveList[i]);
 
@@ -105,14 +192,19 @@ int minMax(int depth, Color sideToMove)
             }
             legalMoves++;
 
-            eval = minMax(depth-1, static_cast<Color>(!sideToMove));
+            eval = minMax(depth-1, BLACK, alpha, beta);
             unmakeMove(moveInfo);
             if(eval>bestEval){
                 bestEval=eval;
+                if(bestEval>alpha)
+                    alpha = bestEval;
             }
+
+            if(beta<=alpha)
+                break;
         }
     }else{
-        bestEval=INT_MAX;
+        bestEval=100000000;
         for(int i=0;i<moveCount;i++){
             MoveInfo moveInfo = makeMove(moveList[i]);
             
@@ -123,18 +215,23 @@ int minMax(int depth, Color sideToMove)
             legalMoves++;
             
             
-            eval = minMax(depth-1, static_cast<Color>(!sideToMove));
+            eval = minMax(depth-1, WHITE, alpha,beta);
             unmakeMove(moveInfo);
             if(eval<bestEval){
                 bestEval=eval;
+                if(bestEval<beta)
+                    beta = bestEval;
             }
+
+            if(beta<=alpha)
+                break;
         }
     }
 
     if(legalMoves==0){
         bool isCheck = isSquareAttacked(getKingSquare(sideToMove),static_cast<Color>(!sideToMove));
         if(isCheck){
-            return (sideToMove==WHITE)?-999999-depth:999999+depth; // depth adjusts the rapidity of the mate
+            return (sideToMove==WHITE)?-999999-depth:999999+depth;
         }else{
             return 0; //Stalemate
         }

@@ -2,8 +2,14 @@
 #include <string>
 #include "bitboards.h"
 #include <cassert>
+#include <random>
+#include <stdint.h>
 
 char printablePieces[]="-PBNRQK--pbnrqk---";
+
+uint8_t castlingRights = 0x0f;
+Square enPassantSq = A1;
+bool enPassant = false;
 
 void showPositions(){
     printf("\n\n  ");
@@ -39,6 +45,45 @@ void showBoard(){
     //showPositions();
 }
 
+void initZobrist(){
+    std::mt19937_64 rng(1234577);
+    std::uniform_int_distribution<uint64_t> dist;
+
+    for(int i=0; i<16;i++)
+        for(int j=0;j<64;j++)
+            pieceKeys[i][j] = dist(rng);
+
+    for(int i=0;i<16;i++)
+        castleKeys[i]=dist(rng);
+    
+    for(int i=0;i<8;i++)
+        enPassantKeys[i]=dist(rng);
+    
+    sideKey = dist(rng);
+}
+
+uint64_t generateZorbist(){
+    uint64_t hash = 0;
+
+    for(int sq = 0; sq < 64; sq++){
+        PieceType piece = board.cells[sq];
+        if(piece!=EMPTY)
+            hash ^= pieceKeys[piece][sq];
+    }
+
+    hash ^= castleKeys[castlingRights];
+
+    if(enPassant==true){
+        int enPassantFile = enPassantSq % 8;
+        hash^= enPassantKeys[enPassantFile];
+    }
+
+    if(sideToMove==BLACK)
+        hash ^= sideKey;
+
+    return hash;
+}
+
 void initBoard(){
     board.cells[E1]=WHITE_KING;
     board.cells[D1]=WHITE_QUEEN;
@@ -67,6 +112,8 @@ void initBoard(){
         else if(BLACK(pcs))
             board.pieces[BLACK_PIECE]|=bSq(i);
     }
+
+    boardHash = generateZorbist();
 }
 void setPiece(int pos, PieceType piece){
     board.cells[pos]=piece;
@@ -137,6 +184,8 @@ void loadBoard(char* fen){
         p++;
     }
     validateBoardState33();
+
+    boardHash = generateZorbist();
 }
 
 Color oppositeColor(Color c)

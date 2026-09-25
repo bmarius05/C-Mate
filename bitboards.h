@@ -104,7 +104,17 @@ typedef struct Board{
 
 inline Board board;
 
+extern Color sideToMove;
 
+inline uint64_t boardHash;
+
+inline uint64_t pieceKeys[16][64];
+inline uint64_t castleKeys[16];
+inline uint64_t enPassantKeys[8];
+inline uint64_t sideKey;
+
+void initZobrist();
+uint64_t generateZorbist();
 void showPositions();
 void showBoard();
 
