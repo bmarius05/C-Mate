@@ -4,9 +4,6 @@
 
 #include <immintrin.h> // Pentru intrinsice CPU
 
-static int maxDepth=3;
-
-
 inline uint8_t getLSBIndex(uint64_t bb) {
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_ctzll(bb); // Count Trailing Zeros (GCC / Clang)
@@ -247,7 +244,7 @@ MoveInfo makeMove(Move move){
     }
     boardHash ^= sideKey;
     sideToMove = oppositeColor(sideToMove);
-    validateBoardState();
+    //validateBoardState();
 
     moveCnt++;
 
@@ -301,7 +298,7 @@ MoveInfo makeMove(Move move){
         }
     }
 
-    assert(boardHash == generateZorbist());
+    //assert(boardHash == generateZorbist());
 
     return MoveInfo{src,dst,piece,capturedPiece,castlingRightsCopy,enPassantSqCopy,enPassantCopy};
 }
@@ -399,7 +396,7 @@ void unmakeMove(const MoveInfo move)
     enPassant = move.enPassantCopy;
     enPassantSq = move.enPassantSqCopy;
     sideToMove = oppositeColor(sideToMove);
-    validateBoardState();
+    //validateBoardState();
     boardHash = gameHistory[--moveCnt];
 
 }
@@ -820,30 +817,42 @@ int generateAllMoves(Color sideToMove, Move *moveList){
     return cnt;
 }
 
-Move findBestMove(Color sideToMove){
+int generateCaptures(Color sideToMove, Move* moveList){
+    int cnt = generateAllMoves(sideToMove,moveList);
+    for(int i=0;i<cnt;i++){
+        if(board.cells[moveList[i].dst] == EMPTY){
+            moveList[i] = moveList[--cnt];
+            i--;
+        }
+    }
+    return cnt;
+}
+
+Move findBestMoveDepth(Color sideToMove, int depth){
     Move moveList[256];
     MoveInfo moveInfo;
-    if(moveCnt==0){
-        return Move{D2,D4};
-    }
     int moveCount = generateAllMoves(sideToMove, moveList);
     int bestIndex=-1;
     int currEval;
     int legalMoves=0;
     totalExplored=0;
     if(sideToMove==WHITE){
-        int maxEval=-10000000;
+        int maxEval=-100000000;
         for(int i=0;i<moveCount;i++){
             moveInfo = makeMove(moveList[i]);
 
+            printf("info depth %d currmove ", depth);
+            std::cout << moveToString(moveList[i]); // funcția ta care afișează "e2e4"
+            printf(" currmovenumber %d\n", i + 1);
+            fflush(stdout); // FORȚEAZĂ trimiterea textului imediat către GUI
+
             if (isSquareAttacked(getKingSquare(WHITE), BLACK)) {
-                //printf("info string DEBUG: Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
+                
                 unmakeMove(moveInfo);
                 continue;
             }
             legalMoves++;
-            currEval = minMax(maxDepth, BLACK, INT_MIN, INT_MAX);
-            //printf("Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
+            currEval = minMax(depth-1, BLACK, INT_MIN, INT_MAX);
             if(currEval > maxEval || bestIndex == -1){
                 maxEval=currEval;
                 bestIndex=i;
@@ -852,19 +861,20 @@ Move findBestMove(Color sideToMove){
         }
         currEval = maxEval;
     }else{
-        int minEval=10000000;
+        int minEval=100000000;
         for(int i=0;i<moveCount;i++){
             moveInfo = makeMove(moveList[i]);
-            Square blackKingSq = getKingSquare(BLACK);
-            bool isAttacked = isSquareAttacked(blackKingSq, WHITE);
-            
+
+            printf("info depth %d currmove %s", depth ,moveToString(moveList[i]).c_str()); // funcția ta care afișează "e2e4"
+            printf(" currmovenumber %d\n", i + 1);
+            fflush(stdout); // FORȚEAZĂ trimiterea textului imediat către GUI
             
             if (isSquareAttacked(getKingSquare(BLACK), WHITE)) {
                 unmakeMove(moveInfo);
                 continue;
             }
             legalMoves++;
-            currEval = minMax(maxDepth, WHITE, INT_MIN, INT_MAX);
+            currEval = minMax(depth-1, WHITE, INT_MIN, INT_MAX);
             
             //printf("info string DEBUG: Mutarea %d -> %d a primit scorul %d\n",moveList[i].src,moveList[i].dst,currEval);
             if(currEval < minEval || bestIndex == -1){
@@ -884,6 +894,72 @@ Move findBestMove(Color sideToMove){
     }
 
     return moveList[bestIndex];
+}
+
+int calculateTimeForMove(int timeLeft, int increment){
+    int targetTime = (timeLeft/30) + (2*increment)/3;
+    if(targetTime >= timeLeft)
+        targetTime = timeLeft-100;
+    if(targetTime < 0)
+        targetTime = 50;
+    return targetTime;
+}
+
+Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int moveTime){
+    if(increment == timeLeft && timeLeft == 0)
+        allocatedTimeMs = moveTime;
+    else
+        allocatedTimeMs = calculateTimeForMove(timeLeft, increment);
+    
+    startTime = std::chrono::steady_clock::now();
+    timeIsUp = false;
+    nodesTicked = 0;
+    lastInfoPrintTime = 0;
+
+    Move bestMove = Move{A1,A1};
+    for(int depth=1;depth<64;depth++){
+        Move currentBest = findBestMoveDepth(sideToMove, depth);
+
+        if(timeIsUp)
+            break;
+
+        bestMove = currentBest;
+        auto now = std::chrono::steady_clock::now();
+        long long timeSpentMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
+        if (timeSpentMs == 0) timeSpentMs = 1; // Evităm împărțirea la zero
+
+        // NPS = (Noduri / Timp în ms) * 1000 pentru a afla pe secundă
+        long long nps = (totalExplored * 1000LL) / timeSpentMs;
+
+        // --- TRIMITEM INFO CĂTRE ARENA / GUI ---
+        printf("info depth %d nodes %llu time %lld nps %lld pv %s\n", 
+               depth, totalExplored, timeSpentMs, nps, moveToString(bestMove).c_str());
+        
+        // Printăm mutarea principală (PV - Principal Variation) ca să știe GUI-ul la ce ne gândim
+        fflush(stdout);
+    }
+
+    return bestMove;
+}
+
+void checkTime() {
+    
+    // Verificăm ceasul doar o dată la 2048 noduri pentru a nu pierde viteză
+    if ((nodesTicked++ & 2047) == 0) {
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
+        if (duration >= allocatedTimeMs) {
+            timeIsUp = true; // S-a scurs timpul!
+        }else if (duration - lastInfoPrintTime >= 1000) {
+            lastInfoPrintTime = duration;
+            
+            long long nps = (totalExplored * 1000LL) / (duration > 0 ? duration : 1);
+            
+            // Trimitem doar nodurile, timpul și viteza curentă
+            printf("info time %lld nodes %llu nps %lld\n", duration, totalExplored, nps);
+            fflush(stdout);
+    }
+    }
 }
 
 bool isSquareAttacked(Square sq, Color attacker)
@@ -953,4 +1029,15 @@ bool isSquareAttacked(Square sq, Color attacker)
 Square getKingSquare(Color color){
     int king = WHITE_KING | color<<3;
     return static_cast<Square>(getMSBIndex(board.pieces[king]));
+}
+
+std::string moveToString(Move bestMove)
+{
+    std::string move;
+    move.clear();
+    move.push_back('a'+(bestMove.src%8));
+    move.push_back('1'+(bestMove.src/8));
+    move.push_back('a'+(bestMove.dst%8));
+    move.push_back('1'+(bestMove.dst/8));
+    return move;
 }

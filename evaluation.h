@@ -1,3 +1,4 @@
+#pragma once
 #include "bitboards.h"
 #include "moves.h"
 

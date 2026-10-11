@@ -13,6 +13,8 @@
 
 //test
 
+
+
 char fenNotation[73];
 Color sideToMove = WHITE;
 
@@ -58,7 +60,8 @@ void UCILoop(){
     init();
     std::string command;
     std::string line;
-    std::string move;
+    int wtime, btime, winc,binc, moveTime;
+
     while(std::getline(std::cin, line)){
         std::istringstream iss(line);
         std::string command;
@@ -111,15 +114,42 @@ void UCILoop(){
             validateBoardState();
             showBoard();
         }else if(command=="go"){
-            move.clear();
+            winc=binc=wtime=btime=moveTime=0;
+            while(iss>>command){
+                if(command == "wtime"){
+                    iss>>command;
+                    wtime = std::stoi(command);
+                }else if(command == "btime"){
+                    iss>>command;
+                    btime = std::stoi(command);
+                }else if(command == "winc"){
+                    iss>>command;
+                    winc = std::stoi(command);
+                }else if(command == "binc"){
+                    iss>>command;
+                    binc = std::stoi(command);
+                }else if(command == "movetime"){
+                    iss>>command;
+                    moveTime = std::stoi(command);
+                }
+            }
+            Move bestMove;
+            if(sideToMove == WHITE){
+                bestMove = findBestMoveTime(sideToMove, wtime, winc, moveTime);
+            }else{
+                bestMove = findBestMoveTime(sideToMove, btime, binc, moveTime);
+            }
+
+            if(bestMove.src == bestMove.dst && bestMove.dst == A1){
+
+                continue;
+                std::cout <<std::endl<< std::flush;
+            }
+
             std::cout<<sideToMove<<std::endl;
-            Move bestMove = findBestMove(sideToMove);
-            move.push_back('a'+(bestMove.src%8));
-            move.push_back('1'+(bestMove.src/8));
-            move.push_back('a'+(bestMove.dst%8));
-            move.push_back('1'+(bestMove.dst/8));
-            std::cout<<"bestmove "<<move<<std::endl;
-            std::cout << std::flush;
+            
+            std::cout<<"bestmove "<<moveToString(bestMove);
+            std::cout <<std::endl<< std::flush;
         }else if(command=="quit"){
             break;
         }
@@ -147,7 +177,7 @@ int main(){
     int evaluation = 0;
     for(int i=0;i<1000&&evaluation<1000000&&evaluation>-1000000;i++){
         Move currentMove;
-        currentMove = findBestMove(i%2?BLACK:WHITE);
+        currentMove = findBestMoveDepth(i%2?BLACK:WHITE,3);
         if(currentMove.src==currentMove.dst && currentMove.dst==A1){
             puts("GAME OVER!");
             printf("%s WON!\n",i%2?"White":"Black");

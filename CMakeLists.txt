@@ -11,4 +11,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 file(GLOB SOURCES "*.cpp")
+
+if(WIN32)
+    # CMake will automatically compile this .rc file using windres on MinGW/GCC
+    list(APPEND SOURCES "resource.rc")
+endif()
+
 add_executable(C-Mate ${SOURCES})

@@ -167,14 +167,83 @@ int staticEval(){
     return eval;
 }
 
+int quiesenceSearch(int qsDepth, Color sideToMove, int alpha, int beta){
+    checkTime();
+    if (timeIsUp) return 0;
+    
+    int initialEval = staticEval();
+
+    if(qsDepth<=0)
+        return initialEval;
+
+    if (sideToMove == WHITE) {
+        if (initialEval >= beta) 
+            return beta;
+        if (initialEval > alpha) 
+            alpha = initialEval;
+    } else {
+        if (initialEval <= alpha) 
+            return alpha;
+        if (initialEval < beta) 
+            beta = initialEval;
+    }
+
+    Move moveList[256];
+    int cnt = generateCaptures(sideToMove, moveList);
+    int score;
+
+    if (sideToMove == WHITE) {
+        for(int i = 0; i < cnt; i++){
+            MoveInfo info = makeMove(moveList[i]);
+
+            if(isSquareAttacked(getKingSquare(WHITE), BLACK)){
+                unmakeMove(info);
+                continue;
+            }
+
+            score = quiesenceSearch(qsDepth-1 ,BLACK, alpha, beta); 
+            unmakeMove(info);
+
+            if(score > alpha) 
+                alpha = score;
+            if(alpha >= beta) 
+                return beta;
+        }
+        return alpha;
+    } 
+    else {
+        for(int i = 0; i < cnt; i++){
+            MoveInfo info = makeMove(moveList[i]);
+
+            if(isSquareAttacked(getKingSquare(BLACK), WHITE)){
+                unmakeMove(info);
+                continue;
+            }
+
+            score = quiesenceSearch(qsDepth-1,WHITE, alpha, beta);
+            unmakeMove(info);
+
+            if(score < beta) 
+                beta = score;
+            if(beta <= alpha) 
+                return alpha;
+        }
+        return beta;
+    }
+
+}
+
 int minMax(int depth, Color sideToMove, int alpha, int beta)
 {
+    checkTime();
+    if (timeIsUp) return 0;
+
     short int terminal = isTerminalState(); 
     if(terminal!=-2){
         return terminal*100000000;
     }
     if(depth==0){
-        return staticEval();
+        return quiesenceSearch(qsMaxDepth, sideToMove, alpha,beta);
     }
 
     int bestEval=0, eval=0;
