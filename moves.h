@@ -24,9 +24,6 @@ inline std::chrono::time_point<std::chrono::steady_clock> startTime;
 inline int allocatedTimeMs;
 inline int nodesTicked = 0;
 
-
-
-static int maxDepth=3;
 static int qsMaxDepth=7;
 
 extern uint8_t moveCnt;
@@ -48,7 +45,7 @@ void initBishopAttacks();
 void initRookAttacks();
 
 int generateAllMoves(Color sideToMove, Move* moveList);
-int generateCaptures(Color sideToMove, Move* moveList);
+int generateAllCaptures(Color sideToMove, Move* moveList);
 Move findBestMoveDepth(Color sideToMove, int depth);
 Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int moveTime);
 bool isSquareAttacked(Square sq, Color attacker);

@@ -189,7 +189,7 @@ int quiesenceSearch(int qsDepth, Color sideToMove, int alpha, int beta){
     }
 
     Move moveList[256];
-    int cnt = generateCaptures(sideToMove, moveList);
+    int cnt = generateAllCaptures(sideToMove, moveList);
     int score;
 
     if (sideToMove == WHITE) {
