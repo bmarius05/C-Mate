@@ -4,6 +4,8 @@
 
 #include <immintrin.h> // Pentru intrinsice CPU
 
+#define DEFAULT_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
+
 inline uint8_t getLSBIndex(uint64_t bb) {
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_ctzll(bb); // Count Trailing Zeros (GCC / Clang)
@@ -38,12 +40,32 @@ enum rookDirections:int{
     LEFT=3
 };
 
+Move stringToMove(std::string move){
+    if (move.length() < 4) {
+        return Move{A1, A1}; 
+    }
 
+    int file_src = tolower(move[0]) - 'a';
+    int rank_src = tolower(move[1]) - '1';
+    int file_dst = tolower(move[2]) - 'a';
+    int rank_dst = tolower(move[3]) - '1';
+
+    // Verificăm dacă indicii pătratelor sunt valizi (0..7)
+    if (file_src < 0 || file_src > 7 || rank_src < 0 || rank_src > 7 ||
+        file_dst < 0 || file_dst > 7 || rank_dst < 0 || rank_dst > 7) {
+        return Move{A1, A1};
+    }
+
+    Square src = static_cast<Square>(rank_src * 8 + file_src);
+    Square dst = static_cast<Square>(rank_dst * 8 + file_dst);
+    return Move{src,dst};
+}
 
 void resetFlags(){
     castlingRights=15;
     enPassantSq=A1;
     enPassant=false;
+    castled = false;
 }
 
 void validateBoardState() {
@@ -68,6 +90,7 @@ MoveInfo makeMove(Move move){
     uint8_t castlingRightsCopy = castlingRights;
     Square enPassantSqCopy = enPassantSq;
     bool enPassantCopy = enPassant;
+    bool castledCopy = castled;
 
     gameHistory[moveCnt] = boardHash;
 
@@ -91,6 +114,7 @@ MoveInfo makeMove(Move move){
             boardHash ^= pieceKeys[WHITE_ROOK][H1];
 
             castlingRights ^=1;
+            castled = true;
         }else if (dst-src==-2 && castlingRights&2){
             //queen side castle
             board.cells[A1]=EMPTY;
@@ -101,6 +125,7 @@ MoveInfo makeMove(Move move){
 
             rookMask = (1ULL<<A1)|(1ULL<<D1);
             castlingRights^=2;
+            castled = true;
         }
         board.pieces[WHITE_ROOK]^=rookMask;
         board.pieces[WHITE_PIECE]^=rookMask;
@@ -117,6 +142,7 @@ MoveInfo makeMove(Move move){
             boardHash ^= pieceKeys[BLACK_ROOK][F8];
             
             castlingRights ^=4;
+            castled = true;
         }else if (dst-src==-2 && castlingRights&8){
             //queen side castle
             rookMask = (1ULL<<A8)|(1ULL<<D8);
@@ -127,6 +153,7 @@ MoveInfo makeMove(Move move){
             boardHash ^= pieceKeys[BLACK_ROOK][D8];
             
             castlingRights^=8;
+            castled = true;
         }
         board.pieces[BLACK_ROOK]^=rookMask;
         board.pieces[BLACK_PIECE]^=rookMask;
@@ -300,7 +327,7 @@ MoveInfo makeMove(Move move){
 
     //assert(boardHash == generateZorbist());
 
-    return MoveInfo{src,dst,piece,capturedPiece,castlingRightsCopy,enPassantSqCopy,enPassantCopy};
+    return MoveInfo{src,dst,piece,capturedPiece,castledCopy,castlingRightsCopy,enPassantSqCopy,enPassantCopy};
 }
 
 void unmakeMove(const MoveInfo move)
@@ -391,7 +418,7 @@ void unmakeMove(const MoveInfo move)
             board.pieces[EMPTY]^=epMask;
         }
     }
-    
+    castled = move.castledCopy;
     castlingRights = move.castlingRightsCopy;
     enPassant = move.enPassantCopy;
     enPassantSq = move.enPassantSqCopy;
@@ -658,155 +685,103 @@ void generateKingMoves(Square sq, Color side, Move* moveList, int& moveCount){
 }
 
 void generateBishopCaptures(Square sq, Color side, Move* moveList, int& moveCount){
-    uint64_t myPieces = board.pieces[WHITE_PIECE | side<<3];
     uint64_t enemyPieces = board.pieces[BLACK_PIECE ^ side<<3];
-    uint64_t ray;
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
-    for(int dir=0;dir<2;dir++){
+    uint64_t ray,blockers;
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
+    uint8_t hit;
+    for(int dir=0;dir<4;dir++){
         ray = bishopAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
-            uint64_t dif = bishopAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
-        }
-    }
-    for(int dir=2;dir<4;dir++){
-        ray = bishopAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
-            uint64_t dif = bishopAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
+        blockers = ray & allOccupancy;
+        if(blockers){
+            if(dir<2)
+                hit = getLSBIndex(blockers);
+            else
+                hit = getMSBIndex(blockers);
+            if((1ULL<<hit) & enemyPieces)
+                moveList[moveCount++] = Move{sq, static_cast<Square>(hit)};
+            
         }
     }
 }
 
 void generateBishopMoves(Square sq, Color side, Move* moveList, int& moveCount){
-    uint64_t myPieces = board.pieces[WHITE_PIECE | side<<3];
-    uint64_t enemyPieces = board.pieces[BLACK_PIECE ^ side<<3];
-    uint64_t ray;
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
-    for(int dir=0;dir<2;dir++){
+    uint64_t ray,blockers,dif;
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
+    uint8_t hit, dstIndex;
+    for(int dir=0;dir<4;dir++){
         ray = bishopAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
-            uint64_t dif = bishopAttacks[hit][dir];
+        blockers = ray & allOccupancy;
+        if(blockers){
+            if(dir<2)
+                hit = getLSBIndex(blockers);
+            else
+                hit = getMSBIndex(blockers);
+            dif = bishopAttacks[hit][dir];
             ray ^= dif;
-            ray &= ~myPieces;
+            ray &= ~allOccupancy;
         }
         while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
+            dstIndex = getLSBIndex(ray); 
             moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
             ray &= ray - 1; 
         }
     }
-    for(int dir=2;dir<4;dir++){
-        ray = bishopAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
-            uint64_t dif = bishopAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
-        }
-    }
+    
 }
 
 void generateRookCaptures(Square sq, Color side, Move* moveList, int& moveCount){
-    uint64_t myPieces = board.pieces[WHITE_PIECE | side<<3];
     uint64_t enemyPieces = board.pieces[BLACK_PIECE ^ side<<3];
-    uint64_t ray;
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
-    for(int dir=0;dir<2;dir++){
+    uint64_t ray,blockers;
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
+    uint8_t hit;
+    for(int dir=0;dir<4;dir++){
         ray = rookAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
-            uint64_t dif = rookAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
-        }
-    }
-    for(int dir=2;dir<4;dir++){
-        ray = rookAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
-            uint64_t dif = rookAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
+        blockers = ray & allOccupancy;
+        if(blockers){
+            if(dir<2)
+                hit = getLSBIndex(blockers);
+            else
+                hit = getMSBIndex(blockers);
+            if((1ULL<<hit) & enemyPieces)
+                moveList[moveCount++] = Move{sq, static_cast<Square>(hit)};
         }
     }
 }
 
 void generateRookMoves(Square sq, Color side, Move* moveList, int& moveCount){
-    uint64_t myPieces = board.pieces[WHITE_PIECE | side<<3];
-    uint64_t enemyPieces = board.pieces[BLACK_PIECE ^ side<<3];
-    uint64_t ray;
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
-    for(int dir=0;dir<2;dir++){
+    uint64_t ray,blockers,dif;
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
+    uint8_t hit,dstIndex;
+    for(int dir=0;dir<4;dir++){
         ray = rookAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
-            uint64_t dif = rookAttacks[hit][dir];
+        blockers = ray & allOccupancy;
+        if(blockers){
+            if(dir<2)
+                hit = getLSBIndex(blockers);
+            else
+                hit = getMSBIndex(blockers);
+            dif = rookAttacks[hit][dir];
             ray ^= dif;
-            ray &= ~myPieces;
+            ray &= ~allOccupancy;
         }
         while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
-            moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
-            ray &= ray - 1; 
-        }
-    }
-    for(int dir=2;dir<4;dir++){
-        ray = rookAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
-            uint64_t dif = rookAttacks[hit][dir];
-            ray ^= dif;
-            ray &= ~myPieces;
-        }
-        while (ray) {
-            uint8_t dstIndex = getLSBIndex(ray); 
+            dstIndex = getLSBIndex(ray); 
             moveList[moveCount++] = Move{ sq, static_cast<Square>(dstIndex) };
             ray &= ray - 1; 
         }
     }
 }
 
-void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
+/*void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
     uint64_t myPieces = board.pieces[WHITE_PIECE | side<<3];
     uint64_t enemyPieces = board.pieces[BLACK_PIECE ^ side<<3];
     
     uint64_t ray;
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
     for(int dir=0;dir<2;dir++){
         ray = bishopAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
+        if(ray & allOccupancy){
+            uint8_t hit = getLSBIndex(blockers);
             uint64_t dif = bishopAttacks[hit][dir];
             ray ^= dif;
             ray &= ~myPieces;
@@ -819,8 +794,8 @@ void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
     }
     for(int dir=2;dir<4;dir++){
         ray = bishopAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
+        if(blockers){
+            uint8_t hit = getMSBIndex(blockers);
             uint64_t dif = bishopAttacks[hit][dir];
             ray ^= dif;
             ray &= ~myPieces;
@@ -833,8 +808,8 @@ void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
     }
     for(int dir=0;dir<2;dir++){
         ray = rookAttacks[sq][dir];
-        if(ray & allOcupancy){
-            uint8_t hit = getLSBIndex(ray&allOcupancy);
+        if(ray & allOccupancy){
+            uint8_t hit = getLSBIndex(blockers);
             uint64_t dif = rookAttacks[hit][dir];
             ray ^= dif;
             ray &= ~myPieces;
@@ -847,8 +822,8 @@ void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
     }
     for(int dir=2;dir<4;dir++){
         ray = rookAttacks[sq][dir];
-        if(ray&allOcupancy){
-            uint8_t hit = getMSBIndex(ray&allOcupancy);
+        if(blockers){
+            uint8_t hit = getMSBIndex(blockers);
             uint64_t dif = rookAttacks[hit][dir];
             ray ^= dif;
             ray &= ~myPieces;
@@ -859,7 +834,8 @@ void generateQueenMoves(Square sq, Color side, Move* moveList, int& moveCount){
             ray &= ray - 1; 
         }
     }
-}
+}*/
+
 
 void generateAllKnightCaptures(Color sideToMove, Move* moveList, int& moveCount){
     uint8_t myKnights = WHITE_KNIGHT | sideToMove<<3;
@@ -996,17 +972,6 @@ int generateAllMoves(Color sideToMove, Move *moveList){
     return cnt;
 }
 
-int generateCaptures(Color sideToMove, Move* moveList){
-    int cnt = generateAllMoves(sideToMove,moveList);
-    for(int i=0;i<cnt;i++){
-        if(board.cells[moveList[i].dst] == EMPTY){
-            moveList[i] = moveList[--cnt];
-            i--;
-        }
-    }
-    return cnt;
-}
-
 Move findBestMoveDepth(Color sideToMove, int depth){
     Move moveList[256];
     MoveInfo moveInfo;
@@ -1070,6 +1035,8 @@ Move findBestMoveDepth(Color sideToMove, int depth){
     printf("info string DEBUG: Total Explored: %lld\n", totalExplored);
     printf("info string DEBUG: legalmoves: %d -\n",legalMoves);
     printf("info string DEBUG: Best Eval: %d -\n",currEval);
+    if(currEval>=1000000 || currEval <= -1000000)
+        timeIsUp = true;
     if (legalMoves == 0) {
         //semnal de Game Over
         return Move{A1, A1}; 
@@ -1078,20 +1045,63 @@ Move findBestMoveDepth(Color sideToMove, int depth){
     return moveList[bestIndex];
 }
 
-int calculateTimeForMove(int timeLeft, int increment){
-    int targetTime = (timeLeft/30) + (2*increment)/3;
-    if(targetTime >= timeLeft)
-        targetTime = timeLeft-100;
+int calculateTimeForMove(int timeLeft, int increment, int movesToGo=0){
+    const int LAG_BUFFER = 50;
+    int targetTime = 0;
+    if(movesToGo>0)
+        targetTime = (timeLeft/movesToGo)+(increment*3)/4;
+    else{
+        int currentMove = moveCnt / 2; 
+        int divisor = 40; // Valoarea de bază
+
+        if (currentMove < 10) {
+            divisor = 35; 
+        } 
+        else if (currentMove >= 10 && currentMove <= 35) {
+            divisor = 18; 
+        } 
+        else{
+            divisor = std::max(12, 50 - currentMove);
+        }
+
+        // Aplicăm formula cu divizorul inteligent
+        targetTime = (timeLeft / divisor) + ((increment * 3) / 4);
+    }
+   
+    if (timeLeft < 500) {
+        targetTime = std::max(20, increment / 2); 
+    }
+
+    if(targetTime >= timeLeft-LAG_BUFFER)
+        targetTime = timeLeft-LAG_BUFFER;
     if(targetTime < 0)
-        targetTime = 50;
-    return targetTime;
+        targetTime = 100;
+
+    return std::max(10,targetTime);
 }
 
-Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int moveTime){
-    if(increment == timeLeft && timeLeft == 0)
+bool infinite = false;
+
+Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int movesToGo, int moveTime){
+    if(openingBook.find(boardHash) != openingBook.end()){
+        std::vector<Move>& possibleMoves = openingBook[boardHash];
+
+        std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<int> dist(0, possibleMoves.size() - 1);
+        
+        Move chosenMove = possibleMoves[dist(rng)];
+        
+        printf("info string Mutare jucata din Book!\n");
+        return chosenMove;
+    }
+    
+    infinite=false;
+    if(increment == timeLeft && timeLeft == 0){
+        if(moveTime==0)
+            infinite = true;
         allocatedTimeMs = moveTime;
-    else
-        allocatedTimeMs = calculateTimeForMove(timeLeft, increment);
+    }else
+        allocatedTimeMs = calculateTimeForMove(timeLeft, increment, movesToGo);
     
     Move moveList[256];
     MoveInfo moveInfo;
@@ -1100,10 +1110,7 @@ Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int moveTim
     int legalCount=0;
     for (int i = 0; i < moveCount; i++) {
         moveInfo = makeMove(moveList[i]);
-        bool legal = !isSquareAttacked(
-            getKingSquare(sideToMove),
-            oppositeColor(sideToMove)
-        );
+        bool legal = !isSquareAttacked(getKingSquare(sideToMove),oppositeColor(sideToMove));
         unmakeMove(moveInfo);
         if (legal) {
             legalMove = moveList[i];
@@ -1147,7 +1154,8 @@ Move findBestMoveTime(Color sideToMove, int timeLeft, int increment, int moveTim
 }
 
 void checkTime() {
-    
+    if(infinite)
+        return;
     // Verificăm ceasul doar o dată la 2048 noduri pentru a nu pierde viteză
     if ((nodesTicked++ & 2047) == 0) {
         auto now = std::chrono::steady_clock::now();
@@ -1188,18 +1196,19 @@ bool isSquareAttacked(Square sq, Color attacker)
 
     uint64_t bishopsQueenCopy = board.pieces[attacker==WHITE?WHITE_BISHOP:BLACK_BISHOP]|board.pieces[attacker==WHITE?WHITE_QUEEN:BLACK_QUEEN];
     uint64_t rooksQueenCopy = board.pieces[attacker==WHITE?WHITE_ROOK:BLACK_ROOK]|board.pieces[attacker==WHITE?WHITE_QUEEN:BLACK_QUEEN];
-    uint64_t allOcupancy = ~board.pieces[EMPTY];
+    uint64_t allOccupancy = ~board.pieces[EMPTY];
     uint64_t myPieces = board.pieces[attacker==WHITE?BLACK_PIECE:WHITE_PIECE];
 
     uint64_t bishopRays = 0;
     for(int dir=0;dir<4;dir++){
         uint64_t ray = bishopAttacks[sq][dir];
-        if(ray & allOcupancy){
+        uint64_t blockers = ray&allOccupancy;
+        if(blockers){
             uint8_t hit;
             if(ray > square)
-                hit = getLSBIndex(ray&allOcupancy);
+                hit = getLSBIndex(blockers);
             else
-                hit = getMSBIndex(ray&allOcupancy);
+                hit = getMSBIndex(blockers);
             uint64_t dif = bishopAttacks[hit][dir];
             ray ^= dif;
             //ray &= ~myPieces;
@@ -1212,12 +1221,13 @@ bool isSquareAttacked(Square sq, Color attacker)
     uint64_t rookRays = 0;
     for(int dir=0;dir<4;dir++){
         uint64_t ray = rookAttacks[sq][dir];
-        if(ray & allOcupancy){
+        uint64_t blockers = ray&allOccupancy;
+        if(blockers){
             uint8_t hit;
             if(ray > square)
-                hit = getLSBIndex(ray&allOcupancy);
+                hit = getLSBIndex(blockers);
             else
-                hit = getMSBIndex(ray&allOcupancy);
+                hit = getMSBIndex(blockers);
             uint64_t dif = rookAttacks[hit][dir];
             ray ^= dif;
             //ray &= ~myPieces;
@@ -1244,4 +1254,36 @@ std::string moveToString(Move bestMove)
     move.push_back('a'+(bestMove.dst%8));
     move.push_back('1'+(bestMove.dst/8));
     return move;
+}
+
+
+void loadOppeningBook(const std::string filename)
+{
+    std::ifstream file(filename);
+    if(!file.is_open()){
+        printf("Error oppening book: %s\n", filename.c_str());
+        return;
+    }
+
+    std::string line;
+    int linesLoaded = 0;
+    while(std::getline(file,line)){
+        loadBoard(DEFAULT_POSITION);
+
+        std::istringstream iss(line);
+        std::string moveStr;
+        while(iss>>moveStr){
+            Move move = stringToMove(moveStr);
+
+            if (board.cells[move.src] == EMPTY) {
+                printf("info string AVERTISMENT: Am ignorat o mutare invalida in book.txt: %s\n", moveStr.c_str());
+                break; // Oprim procesarea acestei linii și trecem la următoarea
+            }
+
+            openingBook[boardHash].push_back(move);
+            makeMove(move);
+        }
+        linesLoaded++;
+    }
+    printf("Loaded %d oppening lines\n",linesLoaded);
 }

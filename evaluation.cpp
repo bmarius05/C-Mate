@@ -42,16 +42,36 @@ inline uint8_t getMSBIndex(uint64_t bb) {
 #endif
 }
 
+int getGamePhase(){
+    const int knightPhase = 1;
+    const int bishopPhase = 1;
+    const int rookPhase   = 2;
+    const int queenPhase  = 4;
+
+    const int totalPhase = 24;
+    int knights = countBits(board.pieces[WHITE_KNIGHT])+countBits(board.pieces[BLACK_KNIGHT]);
+    int bishops = countBits(board.pieces[WHITE_BISHOP])+countBits(board.pieces[BLACK_BISHOP]);
+    int rooks = countBits(board.pieces[WHITE_ROOK])+countBits(board.pieces[BLACK_ROOK]);
+    int queens = countBits(board.pieces[WHITE_QUEEN])+countBits(board.pieces[BLACK_QUEEN]);
+
+    int currentPhase = knights * knightPhase +
+                       bishops * bishopPhase +
+                       rooks * rookPhase + 
+                       queens * queenPhase;
+
+    return std::min(totalPhase, currentPhase);
+}
+
 bool checkThreefold(){
+    if(moveCnt<4)
+        return false;
     uint8_t found=1;
     uint64_t lastHash = gameHistory[moveCnt-1];
     for(int i=0;i<moveCnt-2;i++)
         if(gameHistory[i]==lastHash)
             found++;
 
-    if(found==3)
-        return true; //threefold
-    return false;
+    return found>=2;
 }
 
 int isTerminalState(){
@@ -63,38 +83,100 @@ int isTerminalState(){
     /// TODO: logic
 }
 
-int getKnightsEval(Color side){
-    int eval=0;
-    uint64_t knightsCopy = board.pieces[WHITE_KNIGHT|side<<3];
-    while (knightsCopy) {
-        Square src = static_cast<Square>(getLSBIndex(knightsCopy));
-        eval+=300;
-        if(src%8==0||src%8==7||src<8||src>=56)
-            eval-=10;
-        else if(src==D4||src==D5||src==E4||src==E5)
-            eval+=10;
-        knightsCopy &= knightsCopy - 1; 
+bool isPassedPawn(Square sq, Color side){
+    int file = sq%8;
+    int enemyPawn = WHITE_PAWN|(oppositeColor(side)<<3);
+    int start = side==WHITE?(sq+8):(sq-8);
+    int step = side==WHITE?(8):(-8);
+    for(int pos = start; (side==WHITE)?(pos < 64):(pos>=0);pos+=step){
+        if(board.cells[pos] == enemyPawn)
+            return false;
+        if(file>=1 && board.cells[pos-1] == enemyPawn)
+            return false;
+        if(file<=6 && board.cells[pos+1] == enemyPawn)
+            return false;
     }
-    return eval;
+    return true;
+}
+int countPawnsOnFile(int file, Color side){
+    int pawns = 0;
+    int myPawn = WHITE_PAWN|(side<<3);
+    for(int sq = file; sq<64;sq+=8){
+        if(board.cells[sq] == myPawn)
+            pawns++;
+    }
+    return pawns;
+}
+bool hasPawnOnNeighborFile(int file, Color side){
+    if(file>=1)
+        if(countPawnsOnFile(file-1,side)>0)
+            return true;
+    if(file<=6)
+        if(countPawnsOnFile(file+1,side)>0)
+            return true;
+    return false;
 }
 
 int getPawnsEval(Color side){
     int eval = 0;
-    int bonus = 0;
     uint64_t pawnsCopy = board.pieces[WHITE_PAWN|side<<3];
     while (pawnsCopy) {
         Square src = static_cast<Square>(getLSBIndex(pawnsCopy));
-        eval+=100;
-        bonus = (src/16)*10;
-        if(side == WHITE)
-            eval+=bonus;
-        else
-            eval+= (30-bonus);
-        if(src == D4 || src == E4 || src == D5 || src == E5)
-            eval+=10;
+        int file = src%8;
+        int rank = src/8;
+
+        if(isPassedPawn(src, side)){
+            int rankBonus = side==WHITE?(rank):(7-rank);
+            eval+=rankBonus*rankBonus*10;
+        }
+        if(countPawnsOnFile(file,side)>1)
+            eval-=20;
+        if(!hasPawnOnNeighborFile(file,side))
+            eval-=15;
+
         pawnsCopy &= pawnsCopy - 1; 
     }
     return eval;
+}
+
+int evaluateKingSafety(Color side) {
+    int phase = getGamePhase();
+    if (phase < 10) return 0; 
+
+    Square kingSq = getKingSquare(side);
+    int score = castled?70:0;
+    if (side == WHITE) {
+        if (kingSq == G1 || kingSq == H1 || kingSq == F1) {
+            if (board.cells[F2] != WHITE_PAWN && board.cells[F3] != WHITE_PAWN) score -= 25;
+            if (board.cells[G2] != WHITE_PAWN && board.cells[G3] != WHITE_PAWN) score -= 35;
+            if (board.cells[H2] != WHITE_PAWN && board.cells[H3] != WHITE_PAWN) score -= 20;
+        } 
+        else if (kingSq == C1 || kingSq == B1 || kingSq == A1) {
+            if (board.cells[A2] != WHITE_PAWN && board.cells[A3] != WHITE_PAWN) score -= 20;
+            if (board.cells[B2] != WHITE_PAWN && board.cells[B3] != WHITE_PAWN) score -= 35;
+            if (board.cells[C2] != WHITE_PAWN && board.cells[C3] != WHITE_PAWN) score -= 25;
+        } 
+        else {
+            score -= 70;
+        }
+    } 
+    else { 
+        if (kingSq == G8 || kingSq == H8 || kingSq == F8) {
+            if (board.cells[F7] != BLACK_PAWN && board.cells[F6] != BLACK_PAWN) score -= 25;
+            if (board.cells[G7] != BLACK_PAWN && board.cells[G6] != BLACK_PAWN) score -= 35;
+            if (board.cells[H7] != BLACK_PAWN && board.cells[H6] != BLACK_PAWN) score -= 20;
+        } 
+        else if (kingSq == C8 || kingSq == B8 || kingSq == A8) {
+            if (board.cells[A7] != BLACK_PAWN && board.cells[A6] != BLACK_PAWN) score -= 20;
+            if (board.cells[B7] != BLACK_PAWN && board.cells[B6] != BLACK_PAWN) score -= 35;
+            if (board.cells[C7] != BLACK_PAWN && board.cells[C6] != BLACK_PAWN) score -= 25;
+        } 
+        else {
+            score -= 70; 
+        }
+    }
+
+    return (score * phase) / 24;
 }
 
 const int mopUpTable[64] = {
@@ -127,22 +209,135 @@ int evalMopUp(Color side){
     return eval;
 }
 
+int getPieceValue(PieceType pcs){
+    const PieceType type = static_cast<PieceType>(pcs & (~(1<<3)));
+    switch (type)
+    {
+        case WHITE_PAWN:   return 90;
+        case WHITE_KNIGHT: return 320;
+        case WHITE_BISHOP: return 330;
+        case WHITE_ROOK:   return 500;
+        case WHITE_QUEEN:  return 980;
+        case WHITE_KING:   return 20000;
+        default:           return 0;
+    }
+}
+int getPstMg(PieceType p, int pstIndex){
+    const PieceType type = static_cast<PieceType>(p & (~(1<<3)));
+    switch (type)
+    {
+        case WHITE_PAWN:
+            return mg_pawn_table[pstIndex];
+        case WHITE_BISHOP:
+            return mg_bishop_table[pstIndex];
+        case WHITE_KNIGHT:
+            return mg_knight_table[pstIndex];
+        case WHITE_ROOK:
+            return mg_rook_table[pstIndex];
+        case WHITE_QUEEN:
+            return mg_queen_table[pstIndex];
+        case WHITE_KING:
+            return mg_king_table[pstIndex];
+        default:
+            return 0;
+    }
+    return 0;
+}
+int getPstEg(PieceType p, int pstIndex){
+    const PieceType type = static_cast<PieceType>(p & (~(1<<3)));
+    switch (type)
+    {
+        case WHITE_PAWN:
+            return eg_pawn_table[pstIndex];
+        case WHITE_BISHOP:
+            return eg_bishop_table[pstIndex];
+        case WHITE_KNIGHT:
+            return eg_knight_table[pstIndex];
+        case WHITE_ROOK:
+            return eg_rook_table[pstIndex];
+        case WHITE_QUEEN:
+            return eg_queen_table[pstIndex];
+        case WHITE_KING:
+            return eg_king_table[pstIndex];
+        default:
+            return 0;
+    }
+    return 0;
+}
+
+/*
+int staticEval(){
+    const int ENDGAME_LIMIT = 400;
+    const int MOPUP_DIF=200;
+    
+    int mgWhite = 0, egWhite = 0;
+    int mgBlack = 0, egBlack = 0;
+    int whiteMaterial = 0, blackMaterial=0;
+
+    for(int sq = 0; sq<64; sq++){
+        PieceType p = board.cells[sq];
+        if(p==EMPTY)
+            continue;
+        
+        Color c = (p & (1<<3))?BLACK:WHITE;
+        int val = getPieceValue(p);
+
+        int pstIndex = (c==BLACK)?sq:(sq^56);
+        int mgPst = getPstMg(p, pstIndex);
+        int egPst = getPstEg(p, pstIndex);
+
+        if(c==WHITE){
+            mgWhite += val+mgPst;
+            egWhite += val+egPst;
+            if(p!=WHITE_KING) whiteMaterial += val;
+        }else{
+            mgBlack += val+mgPst;
+            egBlack += val+egPst;
+            if(p!=BLACK_KING) blackMaterial += val;
+        }
+    }
+
+    mgWhite += getPawnsEval(WHITE); egWhite += getPawnsEval(WHITE);
+    mgBlack += getPawnsEval(BLACK); egBlack += getPawnsEval(BLACK);
+
+    mgWhite += evaluateKingSafety(WHITE);
+    mgBlack += evaluateKingSafety(BLACK);
+
+    int materialDif = whiteMaterial - blackMaterial;
+
+    if(materialDif > MOPUP_DIF && blackMaterial < ENDGAME_LIMIT){
+        egWhite+= evalMopUp(WHITE);
+    }else if(materialDif < -MOPUP_DIF && whiteMaterial < ENDGAME_LIMIT){
+        egBlack+= evalMopUp(BLACK);
+    }
+
+    int mgScore = mgWhite - mgBlack;
+    int egScore = egWhite - egBlack;
+
+    int phase = getGamePhase();
+
+    int eval = (mgScore * phase + egScore * (24 - phase)) / 24;
+
+    return eval;
+
+}*/
+
 int staticEval(){
     const int ENDGAME_LIMIT = 400;
     
     int whiteMaterial = 0;
     int blackMaterial = 0;
 
-    whiteMaterial+=getPawnsEval(WHITE);
+    whiteMaterial+=countBits(board.pieces[WHITE_PAWN])*100;
     whiteMaterial+=countBits(board.pieces[WHITE_BISHOP])*300;
-    whiteMaterial+=getKnightsEval(WHITE);
+    whiteMaterial+=countBits(board.pieces[WHITE_KNIGHT])*300;
     whiteMaterial+=countBits(board.pieces[WHITE_ROOK])*500;
     whiteMaterial+=countBits(board.pieces[WHITE_QUEEN])*900;
     
     
-    blackMaterial+=getPawnsEval(BLACK);
+    blackMaterial+=countBits(board.pieces[BLACK_PAWN])*100;
     blackMaterial+=countBits(board.pieces[BLACK_BISHOP])*300;
-    blackMaterial+=getKnightsEval(BLACK);
+    blackMaterial+=countBits(board.pieces[BLACK_KNIGHT])*300;
     blackMaterial+=countBits(board.pieces[BLACK_ROOK])*500;
     blackMaterial+=countBits(board.pieces[BLACK_QUEEN])*900;
     

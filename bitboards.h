@@ -2,7 +2,13 @@
 #define bSq(n) (((uint64_t)1)<<n)
 #define WHITE(n) ((!(n&8))&&n)
 #define BLACK(n) ((n&8)&&n)
+
 #include <iostream>
+#include <unordered_map>
+#include <vector>
+#include <fstream>
+#include <sstream>
+#include <random>
 
 enum Square:uint8_t{
     A1=0,

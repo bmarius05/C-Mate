@@ -4,15 +4,16 @@
 #include "bitboards.h"
 #include "moves.h"
 #include "evaluation.h"
-#include <cassert>
+#include <thread>
 
 #define NAME "C-Mate"
 #define AUTHOR "bmarius05"
+#define BOOK "../../book.txt"
 
 #define DEFAULT_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
 
-//test
 
+std::thread searchThread;
 
 
 char fenNotation[73];
@@ -31,8 +32,9 @@ void init(){
     initKnightAttacks();
     initKingAttacks();
     initBishopAttacks();
-    initRookAttacks();
+    initRookAttacks();;
     initZobrist();
+    loadOppeningBook(BOOK);
 }
 
 Move getPlayerMove(){
@@ -49,18 +51,9 @@ Move getPlayerMove(){
     return Move{static_cast<Square>(src), static_cast<Square>(dst)};
 }
 
-Move stringToMove(std::string move){
-    int from = 8*(move[1]-'0'-1) + toupper(move[0])-'A';
-    int to = 8*(move[3]-'0'-1) + toupper(move[2])-'A';
-    std::cout<<"From: "<<from<<"\tto:"<<to<<std::endl;
-    return Move{static_cast<Square>(from),static_cast<Square>(to)};
-}
-
 void UCILoop(){
-    init();
-    std::string command;
     std::string line;
-    int wtime, btime, winc,binc, moveTime;
+    int wtime, btime, winc,binc, moveTime, movesToGo;
 
     while(std::getline(std::cin, line)){
         std::istringstream iss(line);
@@ -70,11 +63,16 @@ void UCILoop(){
         if(command == "uci"){
             std::cout<<"id name "<<NAME<<std::endl;
             std::cout<<"id author "<<AUTHOR<<std::endl;
+            init();
             std::cout<<"uciok\n";
             std::cout << std::flush;
         }else if(command == "isready"){
             std::cout<<"readyok\n";
             std::cout << std::flush;
+        }else if(command == "ucinewgame"){
+            sideToMove=WHITE;
+            resetFlags();
+            loadBoard(DEFAULT_POSITION);
         }else if(command == "position"){
             iss >> command;
             if(command == "startpos"){
@@ -114,7 +112,7 @@ void UCILoop(){
             validateBoardState();
             showBoard();
         }else if(command=="go"){
-            winc=binc=wtime=btime=moveTime=0;
+            winc=binc=wtime=btime=moveTime=movesToGo=0;
             while(iss>>command){
                 if(command == "wtime"){
                     iss>>command;
@@ -131,68 +129,65 @@ void UCILoop(){
                 }else if(command == "movetime"){
                     iss>>command;
                     moveTime = std::stoi(command);
+                }else if(command == "movestogo"){
+                    iss>>command;
+                    movesToGo = std::stoi(command);   
+                }else if(command == "infinite"){
+                    winc=binc=wtime=btime=moveTime=0;
                 }
             }
-            Move bestMove;
-            if(sideToMove == WHITE){
-                bestMove = findBestMoveTime(sideToMove, wtime, winc, moveTime);
-            }else{
-                bestMove = findBestMoveTime(sideToMove, btime, binc, moveTime);
+
+            if (searchThread.joinable()) {
+                searchThread.join(); 
             }
+            Color side = sideToMove;
 
-            if(bestMove.src == bestMove.dst && bestMove.dst == A1){
-
-                continue;
+            searchThread = std::thread([side, wtime, winc,btime,binc, moveTime, movesToGo]() { 
+                // Asta rulează complet separat de std::cin!
+                Move bestMove;
+                if(side == WHITE)
+                    bestMove = findBestMoveTime(side, wtime, winc, movesToGo, moveTime);
+                else
+                    bestMove = findBestMoveTime(side, btime, binc, movesToGo, moveTime);
+                // EXTREM DE IMPORTANT: bestmove se trimite de AICI, din interiorul thread-ului,
+                // fix în momentul în care funcția s-a oprit (fie natural, fie de la stop)
+                std::cout<<"bestmove "<<moveToString(bestMove);
                 std::cout <<std::endl<< std::flush;
-            }
 
-            std::cout<<sideToMove<<std::endl;
+            });
+
+        }else if (command == "stop") {
+            timeIsUp = true; 
             
-            std::cout<<"bestmove "<<moveToString(bestMove);
-            std::cout <<std::endl<< std::flush;
-        }else if(command=="quit"){
+            if (searchThread.joinable()) {
+                searchThread.join(); 
+            }
+        }
+        else if (command == "quit") {
+            timeIsUp = true;
+            if (searchThread.joinable()) {
+                searchThread.join();
+            }
             break;
         }
     }
 }
 
 int main(){
-    system("clear");
-    
-    UCILoop();
-    
-    return 0;
-    scanf("%s",fenNotation);
-    loadBoard(fenNotation);
-    showBoard();
+    std::string line;
+    std::getline(std::cin, line);
+    std::istringstream iss(line);
+    std::string command;
+    iss >> command;
 
-    init();
-    /*
-    makeMove(Move{D2,D4});
-    makeMove(Move{D7,D5});
-    makeMove(Move{C1,F4});
-    makeMove(Move{C8,F5});
-    /*
-    */
-    int evaluation = 0;
-    for(int i=0;i<1000&&evaluation<1000000&&evaluation>-1000000;i++){
-        Move currentMove;
-        currentMove = findBestMoveDepth(i%2?BLACK:WHITE,3);
-        if(currentMove.src==currentMove.dst && currentMove.dst==A1){
-            puts("GAME OVER!");
-            printf("%s WON!\n",i%2?"White":"Black");
-            return 0;
-        }
-        if(i%2 == PLAYER_SIDE){
-            currentMove = getPlayerMove();
-        }
-        makeMove(currentMove);
-        showBoard();
-        evaluation = staticEval();
-        printf("Eval: %4d\n", evaluation);
-        int src = currentMove.src;
-        int dst = currentMove.dst;
-        printf("%4d: %s moved from:%c%c\tto: %c%c\n\n",i,i%2?"Black":"White", 'A'+(src%8), '1'+(src/8), 'A'+(dst%8), '1'+(dst/8));
+    if(command == "uci"){
+        std::cout<<"id name "<<NAME<<std::endl;
+        std::cout<<"id author "<<AUTHOR<<std::endl;
+        init();
+        std::cout<<"uciok\n";
+        std::cout << std::flush;
+        UCILoop();
     }
+
     return 0;
 }
